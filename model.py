@@ -6,6 +6,11 @@ from keras.utils import plot_model, to_categorical
 import numpy as np
 import re
 
+# TODO
+# return all timesteps
+# predict function
+# progress outputs
+
 
 # Source: https://github.com/kjaisingh/rap-lyrics-generator/blob/master/train.py
 def package_for_training(elements, preprocessed_text, sequence_length, step):
@@ -16,10 +21,10 @@ def package_for_training(elements, preprocessed_text, sequence_length, step):
 
     # build sequences and expected outputs
     sequences = []
-    next_chars = []
+    next_elements = []
     for i in range(0, len(encoded_text) - sequence_length, step):
         sequences.append(encoded_text[i: i + sequence_length])
-        next_chars.append(encoded_text[i + sequence_length])
+        next_elements.append(encoded_text[i + sequence_length])
 
     # convert to one-hot representation for training
     vocabulary_size = len(elements)
@@ -27,9 +32,9 @@ def package_for_training(elements, preprocessed_text, sequence_length, step):
     y = np.zeros((len(sequences), vocabulary_size), dtype=np.bool)
     for i, sequence in enumerate(sequences):
         x[i, :, :] = to_categorical(sequence, num_classes=vocabulary_size)
-        y[i, :] = to_categorical(next_chars[i], num_classes=vocabulary_size)
+        y[i, :] = to_categorical(next_elements[i], num_classes=vocabulary_size)
 
-    return x, y, vocabulary_size, id_to_element
+    return x, y, vocabulary_size, id_to_element, element_to_id
 
 
 # Converts characters to one-hot representation, splitting text into sequences with a step offset
@@ -60,15 +65,15 @@ class CharBasedModel:
         self.model = Sequential()
         self.model.add(LSTM(hidden_layers[0], input_shape=(sequence_length, vocabulary_size), return_sequences=True))
         for layer in hidden_layers[1:]:
-            self.model.add(LSTM(layer, return_sequences=True))
+            self.model.add(LSTM(layer, return_sequences=False))
         self.model.add(Dense(vocabulary_size))
         self.model.add(Activation('softmax'))
         self.model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['categorical_accuracy'])
         plot_model(self.model, to_file='model.png', show_shapes=True)
 
     def train(self, x, y, epochs, batch_size):
-        self.model.fit(x, y, batch_size=batch_size, epochs=epochs,
-                       callbacks=ModelCheckpoint(filepath='./model-{epoch:02d}.h5', verbose=1))
+        self.model.fit(x, y, batch_size=batch_size, epochs=epochs)
+                       # callbacks=ModelCheckpoint(filepath='./model-{epoch:02d}.h5', verbose=1))
 
     def save(self, filename='wordmodel.h5'):
         self.model.save(filename)
@@ -95,7 +100,7 @@ class WordBasedModel:
         self.model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['categorical_accuracy'])
         plot_model(self.model, to_file='model.png', show_shapes=True)
 
-    def train(self, x, y, epochs, batch_size, text):
+    def train(self, x, y, epochs, batch_size):
         self.model.fit(x, y, batch_size=batch_size, epochs=epochs,
                        callbacks=ModelCheckpoint(filepath='./model-{epoch:02d}.h5', verbose=1))
 
@@ -107,10 +112,42 @@ class WordBasedModel:
 
 
 if __name__ == "__main__":
-    # ex = CharBasedModel(20, 20, [500, 500])
     text = "Lorem ipsum dolor sit amet, consectetur adipiscing elit, sed do eiusmod tempor incididunt ut labore et " \
            "dolore magna aliqua. Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip " \
            "ex ea commodo consequat. Duis aute irure dolor in reprehenderit in voluptate velit esse cillum dolore eu " \
            "fugiat nulla pariatur. Excepteur sint occaecat cupidatat non proident, sunt in culpa qui officia deserunt "\
            "mollit anim id est laborum."
-    generate_word_training_set(text, sequence_length=10, step=2)
+    sequence_length = 10
+    x, y, vocabulary_size, id_to_element, element_to_id = \
+        generate_char_training_set(text, sequence_length=sequence_length, step=1)
+    ex = CharBasedModel(sequence_length, vocabulary_size, [250, 250])
+    ex.train(x, y, 200, 250)
+    ex.save()
+    # encoded_text = x
+    # text += "\n"
+    text = "lorem ipsum dolor si"
+    sentence = text
+    for i in range(400):
+        t = [element_to_id[element] for element in sentence if element in element_to_id]
+
+        # build sequences and expected outputs
+        sequences = []
+        next_elements = []
+        for j in range(0, len(t) - sequence_length, 2):
+            sequences.append(t[j: j + sequence_length])
+
+        # convert to one-hot representation for training
+        x = np.zeros((len(sequences), sequence_length, vocabulary_size), dtype=np.bool)
+        for j, sequence in enumerate(sequences):
+            x[j, :, :] = to_categorical(sequence, num_classes=vocabulary_size)
+
+        encoded_text = x
+
+        output_tokens = ex.model.predict(encoded_text)
+        text += id_to_element[np.argmax(output_tokens[0])]
+
+        sentence = sentence[1:] + id_to_element[np.argmax(output_tokens[0])]
+
+
+
+    print(text)
